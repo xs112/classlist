@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -257,7 +259,16 @@ class MainActivity : AppCompatActivity() {
                     null -> R.color.outline
                 },
             )
-            setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.surface))
+            setCardBackgroundColor(
+                ContextCompat.getColor(
+                    this@MainActivity,
+                    when (focusState) {
+                        CourseFocusState.CURRENT -> R.color.surface_current
+                        CourseFocusState.NEXT -> R.color.surface_next
+                        null -> R.color.surface
+                    },
+                ),
+            )
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 marginStart = dp(16)
                 marginEnd = dp(16)
@@ -270,25 +281,15 @@ class MainActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(dp(5), LinearLayout.LayoutParams.MATCH_PARENT))
                 addView(LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(dp(16), dp(14), dp(16), dp(14))
-                    addView(TextView(this@MainActivity).apply {
-                        val section = getString(R.string.section_range, course.startSection, course.endSection)
-                        val status = when (focusState) {
-                            CourseFocusState.CURRENT -> getString(R.string.current_class)
-                            CourseFocusState.NEXT -> getString(R.string.next_class)
-                            null -> null
-                        }
-                        text = listOfNotNull(section, status).joinToString(" · ")
-                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.secondary))
-                        textSize = 12f
-                        setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    })
+                    setPadding(dp(16), dp(15), dp(16), dp(16))
+                    addView(createCourseHeader(course, focusState))
                     addView(TextView(this@MainActivity).apply {
                         text = course.title
                         setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
                         textSize = 18f
-                        setTypeface(typeface, android.graphics.Typeface.BOLD)
-                        setPadding(0, dp(4), 0, dp(5))
+                        setTypeface(typeface, Typeface.BOLD)
+                        setLineSpacing(dp(2).toFloat(), 1f)
+                        setPadding(0, dp(7), 0, dp(10))
                     })
                     val visibleSegments = course.segments.filter { it.occursInWeek(selectedWeek) }
                     val timeLocations = relevantLocations(course, visibleSegments.map { it.location })
@@ -298,58 +299,165 @@ class MainActivity : AppCompatActivity() {
                         }
                         .distinct()
                     val section = getString(R.string.section_range, course.startSection, course.endSection)
-                    val time = listOfNotNull(
-                        dayName(course.dayOfWeek),
-                        course.period,
-                        section,
-                        clockRanges.singleOrNull(),
-                    ).joinToString(" · ")
-                    addView(metadataText(getString(R.string.class_time, time)))
+                    if (clockRanges.size <= 1) {
+                        addView(
+                            infoRow(
+                                getString(R.string.label_time),
+                                listOfNotNull(dayName(course.dayOfWeek), clockRanges.singleOrNull()).joinToString(" · "),
+                                prominent = true,
+                            ),
+                        )
+                    }
+                    addView(
+                        infoRow(
+                            getString(R.string.label_sections),
+                            listOfNotNull(course.period, section).joinToString(" · "),
+                        ),
+                    )
                     if (visibleSegments.isNotEmpty()) {
-                        visibleSegments.forEach { segment ->
+                        visibleSegments.forEachIndexed { index, segment ->
                             val segmentTime = ClassTimeResolver.formatRange(
                                 course.startSection,
                                 course.endSection,
                                 segment.location,
                             )
+                            if (visibleSegments.size > 1) {
+                                addView(segmentDivider(index + 1))
+                            }
+                            if (clockRanges.size > 1 && segmentTime != null) {
+                                addView(
+                                    infoRow(
+                                        getString(R.string.label_time),
+                                        "${dayName(course.dayOfWeek)} · $segmentTime",
+                                        prominent = true,
+                                    ),
+                                )
+                            }
+                            addView(infoRow(getString(R.string.label_weeks), segment.weekText))
                             addView(
-                                metadataText(
-                                    if (clockRanges.size > 1 && segmentTime != null) {
-                                        getString(
-                                            R.string.class_segment_with_time,
-                                            segment.weekText,
-                                            segmentTime,
-                                            segment.location ?: getString(R.string.not_specified),
-                                            segment.teacher ?: getString(R.string.not_specified),
-                                        )
-                                    } else {
-                                        getString(
-                                            R.string.class_segment,
-                                            segment.weekText,
-                                            segment.location ?: getString(R.string.not_specified),
-                                            segment.teacher ?: getString(R.string.not_specified),
-                                        )
-                                    },
+                                infoRow(
+                                    getString(R.string.label_location),
+                                    segment.location ?: getString(R.string.not_specified),
+                                    prominent = true,
+                                ),
+                            )
+                            addView(
+                                infoRow(
+                                    getString(R.string.label_teacher),
+                                    segment.teacher ?: getString(R.string.not_specified),
                                 ),
                             )
                         }
                     } else {
-                        addView(metadataText(getString(R.string.class_weeks, course.weekText ?: getString(R.string.not_specified))))
-                        addView(metadataText(getString(R.string.class_location, course.location ?: getString(R.string.not_specified))))
-                        addView(metadataText(getString(R.string.class_teacher, course.teacher ?: getString(R.string.not_specified))))
+                        addView(infoRow(getString(R.string.label_weeks), course.weekText ?: getString(R.string.not_specified)))
+                        addView(
+                            infoRow(
+                                getString(R.string.label_location),
+                                course.location ?: getString(R.string.not_specified),
+                                prominent = true,
+                            ),
+                        )
+                        addView(infoRow(getString(R.string.label_teacher), course.teacher ?: getString(R.string.not_specified)))
                     }
-                    course.code?.let { addView(metadataText(getString(R.string.class_code, it))) }
-                    course.details.forEach { addView(metadataText(getString(R.string.class_detail, it))) }
+                    course.code?.let { addView(infoRow(getString(R.string.label_code), it)) }
+                    course.details.forEach { addView(infoRow(getString(R.string.label_detail), it)) }
                 }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             })
         }
     }
 
-    private fun metadataText(value: String) = TextView(this).apply {
-        text = value
-        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-        textSize = 13f
-        setLineSpacing(0f, 1.15f)
+    private fun createCourseHeader(course: Course, focusState: CourseFocusState?): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+
+            addView(TextView(this@MainActivity).apply {
+                text = getString(R.string.section_range, course.startSection, course.endSection)
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.secondary))
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+            val status = when (focusState) {
+                CourseFocusState.CURRENT -> getString(R.string.current_class)
+                CourseFocusState.NEXT -> getString(R.string.next_class)
+                null -> null
+            }
+            if (status != null) {
+                addView(TextView(this@MainActivity).apply {
+                    text = status
+                    setTextColor(
+                        ContextCompat.getColor(
+                            this@MainActivity,
+                            if (focusState == CourseFocusState.CURRENT) R.color.secondary else R.color.primary,
+                        ),
+                    )
+                    textSize = 11f
+                    setTypeface(typeface, Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), dp(3), dp(8), dp(3))
+                    background = roundedBackground(
+                        ContextCompat.getColor(
+                            this@MainActivity,
+                            if (focusState == CourseFocusState.CURRENT) R.color.badge_current else R.color.badge_next,
+                        ),
+                        dp(4).toFloat(),
+                    )
+                })
+            }
+        }
+
+    private fun infoRow(label: String, value: String, prominent: Boolean = false): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            setPadding(0, dp(4), 0, dp(4))
+
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_label))
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(dp(48), LinearLayout.LayoutParams.WRAP_CONTENT))
+
+            addView(TextView(this@MainActivity).apply {
+                text = value
+                setTextColor(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (prominent) R.color.text_primary else R.color.text_secondary,
+                    ),
+                )
+                textSize = if (prominent) 14f else 13f
+                if (prominent) setTypeface(typeface, Typeface.BOLD)
+                setLineSpacing(dp(2).toFloat(), 1f)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+
+    private fun segmentDivider(number: Int): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, dp(9), 0, dp(3))
+        addView(View(this@MainActivity).apply {
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider))
+        }, LinearLayout.LayoutParams(0, dp(1), 1f))
+        addView(TextView(this@MainActivity).apply {
+            text = getString(R.string.teaching_segment, number)
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_label))
+            textSize = 11f
+            setPadding(dp(8), 0, dp(8), 0)
+        })
+        addView(View(this@MainActivity).apply {
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider))
+        }, LinearLayout.LayoutParams(0, dp(1), 1f))
+    }
+
+    private fun roundedBackground(color: Int, radius: Float) = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(color)
+        cornerRadius = radius
     }
 
     private fun locateNow() {

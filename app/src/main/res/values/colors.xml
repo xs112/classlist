@@ -4,9 +4,15 @@
     <color name="primary_dark">#0E4B31</color>
     <color name="secondary">#B05A2B</color>
     <color name="surface">#FFFFFFFF</color>
+    <color name="surface_current">#FFF7F1</color>
+    <color name="surface_next">#F1F8F4</color>
+    <color name="badge_current">#F9E4D5</color>
+    <color name="badge_next">#DCEFE4</color>
     <color name="background">#F3F6F2</color>
     <color name="text_primary">#17211B</color>
     <color name="text_secondary">#5C6860</color>
+    <color name="text_label">#68746C</color>
     <color name="outline">#D7DED9</color>
+    <color name="divider">#E6EBE7</color>
     <color name="white">#FFFFFFFF</color>
 </resources>
