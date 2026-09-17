@@ -7,6 +7,7 @@
     <string name="all_weeks">全部周次</string>
     <string name="previous_week">上一周</string>
     <string name="next_week">下一周</string>
+    <string name="today">今天</string>
     <string name="portal_title">研究生系统</string>
     <string name="close">关闭</string>
     <string name="import_schedule">导入</string>
@@ -17,6 +18,8 @@
     <string name="week_number">第 %1$d 周</string>
     <string name="day_course_count">%1$s · %2$d 门</string>
     <string name="section_range">第 %1$d-%2$d 节</string>
+    <string name="current_class">正在上课</string>
+    <string name="next_class">下一节</string>
     <string name="class_time">上课时间：%1$s</string>
     <string name="class_weeks">上课周次：%1$s</string>
     <string name="class_location">上课教室：%1$s</string>

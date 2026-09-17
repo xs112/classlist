@@ -7,41 +7,54 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.example.classlist.data.AcademicCalendarResolver
 import com.example.classlist.data.ClassTimeResolver
+import com.example.classlist.data.ClassTimeRange
+import com.example.classlist.data.CourseFocusState
 import com.example.classlist.data.PortalSettings
+import com.example.classlist.data.ScheduleFocus
+import com.example.classlist.data.ScheduleFocusResolver
 import com.example.classlist.data.ScheduleStore
 import com.example.classlist.model.Course
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.time.LocalDate
+import java.time.ZonedDateTime
+import java.time.ZoneId
 
 class MainActivity : AppCompatActivity() {
     private lateinit var store: ScheduleStore
     private var courses: List<Course> = emptyList()
     private var selectedDay = 1
     private var selectedWeek = 0
+    private var focusCurrentSchedule = true
+    private var lastLocatedDate: LocalDate? = null
+    private var firstResumePending = true
 
     private lateinit var updatedText: TextView
     private lateinit var syncButton: MaterialButton
     private lateinit var weekControls: View
     private lateinit var weekButton: MaterialButton
-    private lateinit var dayScroll: View
+    private lateinit var dayScroll: HorizontalScrollView
     private lateinit var dayTabs: LinearLayout
     private lateinit var emptyState: View
-    private lateinit var scheduleScroll: View
+    private lateinit var scheduleScroll: ScrollView
     private lateinit var scheduleContent: LinearLayout
 
     private val portalResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             courses = store.load()
+            locateNow()
             renderAll()
         }
     }
@@ -53,12 +66,24 @@ class MainActivity : AppCompatActivity() {
         PortalSettings.removeLegacySavedUrl(this)
         store = ScheduleStore(this)
         courses = store.load()
-        selectedDay = calendarDayOfWeek()
+        locateNow()
 
         bindViews()
         createDayTabs()
         bindActions()
         renderAll()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (firstResumePending) {
+            firstResumePending = false
+            return
+        }
+        if (::store.isInitialized && courses.isNotEmpty()) {
+            locateNow()
+            renderSchedule()
+        }
     }
 
     private fun bindViews() {
@@ -83,14 +108,21 @@ class MainActivity : AppCompatActivity() {
                 0, 1 -> 0
                 else -> selectedWeek - 1
             }
+            focusCurrentSchedule = false
             renderSchedule()
         }
         findViewById<MaterialButton>(R.id.nextWeekButton).setOnClickListener {
             selectedWeek = if (selectedWeek == 0) 1 else (selectedWeek + 1).coerceAtMost(25)
+            focusCurrentSchedule = false
             renderSchedule()
         }
         weekButton.setOnClickListener {
             selectedWeek = 0
+            focusCurrentSchedule = false
+            renderSchedule()
+        }
+        findViewById<MaterialButton>(R.id.todayButton).setOnClickListener {
+            locateNow()
             renderSchedule()
         }
     }
@@ -114,6 +146,7 @@ class MainActivity : AppCompatActivity() {
                 insetBottom = 0
                 setOnClickListener {
                     selectedDay = day
+                    focusCurrentSchedule = false
                     renderSchedule()
                 }
             }
@@ -163,9 +196,23 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
                 textSize = 16f
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(180)))
+            scheduleScroll.scrollTo(0, 0)
+            focusCurrentSchedule = false
             return
         }
-        visibleCourses.forEach { scheduleContent.addView(createCourseCard(it)) }
+        val focus = currentFocus(visibleCourses)
+        visibleCourses.forEachIndexed { index, course ->
+            scheduleContent.addView(createCourseCard(course, focus?.takeIf { it.index == index }?.state))
+        }
+        if (focus != null && focusCurrentSchedule) {
+            scheduleScroll.post {
+                val target = scheduleContent.getChildAt(focus.index + 1)
+                scheduleScroll.scrollTo(0, (target.top - dp(12)).coerceAtLeast(0))
+            }
+        } else {
+            scheduleScroll.scrollTo(0, 0)
+        }
+        focusCurrentSchedule = false
     }
 
     private fun updateDayTabStyles() {
@@ -179,10 +226,16 @@ class MainActivity : AppCompatActivity() {
             button.backgroundTintList = ColorStateList.valueOf(if (selected) primary else surface)
             button.setTextColor(if (selected) Color.WHITE else textPrimary)
             button.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
+            if (selected) {
+                dayScroll.post {
+                    val targetX = button.left - (dayScroll.width - button.width) / 2
+                    dayScroll.smoothScrollTo(targetX.coerceAtLeast(0), 0)
+                }
+            }
         }
     }
 
-    private fun createCourseCard(course: Course): View {
+    private fun createCourseCard(course: Course, focusState: CourseFocusState?): View {
         val accentColors = intArrayOf(
             Color.rgb(23, 107, 69),
             Color.rgb(25, 95, 130),
@@ -195,8 +248,15 @@ class MainActivity : AppCompatActivity() {
         return MaterialCardView(this).apply {
             radius = dp(8).toFloat()
             cardElevation = 0f
-            strokeWidth = dp(1)
-            strokeColor = ContextCompat.getColor(this@MainActivity, R.color.outline)
+            strokeWidth = dp(if (focusState == null) 1 else 2)
+            strokeColor = ContextCompat.getColor(
+                this@MainActivity,
+                when (focusState) {
+                    CourseFocusState.CURRENT -> R.color.secondary
+                    CourseFocusState.NEXT -> R.color.primary
+                    null -> R.color.outline
+                },
+            )
             setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.surface))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 marginStart = dp(16)
@@ -212,7 +272,13 @@ class MainActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(16), dp(14), dp(16), dp(14))
                     addView(TextView(this@MainActivity).apply {
-                        text = getString(R.string.section_range, course.startSection, course.endSection)
+                        val section = getString(R.string.section_range, course.startSection, course.endSection)
+                        val status = when (focusState) {
+                            CourseFocusState.CURRENT -> getString(R.string.current_class)
+                            CourseFocusState.NEXT -> getString(R.string.next_class)
+                            null -> null
+                        }
+                        text = listOfNotNull(section, status).joinToString(" · ")
                         setTextColor(ContextCompat.getColor(this@MainActivity, R.color.secondary))
                         textSize = 12f
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -225,10 +291,7 @@ class MainActivity : AppCompatActivity() {
                         setPadding(0, dp(4), 0, dp(5))
                     })
                     val visibleSegments = course.segments.filter { it.occursInWeek(selectedWeek) }
-                    val timeLocations = visibleSegments
-                        .map { it.location }
-                        .ifEmpty { listOf(course.location) }
-                        .flatMap { location -> location?.split('、') ?: emptyList() }
+                    val timeLocations = relevantLocations(course, visibleSegments.map { it.location })
                     val clockRanges = timeLocations
                         .mapNotNull { location ->
                             ClassTimeResolver.formatRange(course.startSection, course.endSection, location)
@@ -289,9 +352,48 @@ class MainActivity : AppCompatActivity() {
         setLineSpacing(0f, 1.15f)
     }
 
-    private fun calendarDayOfWeek(): Int = ((Calendar.getInstance().get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
+    private fun locateNow() {
+        val now = ZonedDateTime.now(CHINA_ZONE)
+        selectedDay = now.dayOfWeek.value
+        selectedWeek = AcademicCalendarResolver.teachingWeek(now.toLocalDate()) ?: 0
+        lastLocatedDate = now.toLocalDate()
+        focusCurrentSchedule = true
+    }
+
+    private fun currentFocus(visibleCourses: List<Course>): ScheduleFocus? {
+        val now = ZonedDateTime.now(CHINA_ZONE)
+        if (!focusCurrentSchedule || now.toLocalDate() != lastLocatedDate || selectedDay != now.dayOfWeek.value) return null
+        val currentWeek = AcademicCalendarResolver.teachingWeek(now.toLocalDate()) ?: return null
+        if (selectedWeek != currentWeek) return null
+        val ranges = visibleCourses.map(::courseTimeRange)
+        return ScheduleFocusResolver.find(ranges, now.hour * 60 + now.minute)
+    }
+
+    private fun courseTimeRange(course: Course): ClassTimeRange? {
+        val segmentLocations = course.segments
+            .filter { it.occursInWeek(selectedWeek) }
+            .map { it.location }
+        val ranges = relevantLocations(course, segmentLocations).mapNotNull { location ->
+            ClassTimeResolver.resolveRange(course.startSection, course.endSection, location)
+        }
+        if (ranges.isEmpty()) return null
+        return ClassTimeRange(
+            startMinute = ranges.minOf(ClassTimeRange::startMinute),
+            endMinute = ranges.maxOf(ClassTimeRange::endMinute),
+        )
+    }
+
+    private fun relevantLocations(course: Course, segmentLocations: List<String?>): List<String?> {
+        val source = segmentLocations.ifEmpty { listOf(course.location) }
+        val locations = source.flatMap { location -> location?.split('、') ?: emptyList() }
+        return locations.ifEmpty { listOf(null) }
+    }
 
     private fun dayName(day: Int): String = listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")[day - 1]
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        val CHINA_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+    }
 }

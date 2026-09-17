@@ -90,6 +90,15 @@
             android:minWidth="48dp"
             android:text="@string/next_symbol"
             android:textSize="28sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/todayButton"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="64dp"
+            android:layout_height="48dp"
+            android:minWidth="64dp"
+            android:text="@string/today"
+            android:textAllCaps="false" />
     </LinearLayout>
 
     <HorizontalScrollView
